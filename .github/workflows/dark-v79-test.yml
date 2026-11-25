@@ -1,0 +1,40 @@
+name: Dark Scanner V79 Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dark-v79-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Extract V79 scanner
+        run: unzip -q dark-scanner-v79.zip -d scanner
+
+      - name: Run engine tests
+        run: node scanner/tests/run-all.mjs
+
+      - name: Scan Bithumb V79
+        working-directory: scanner
+        run: node server/github-test.mjs
+
+      - name: Save scan results and candles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dark-v79-results
+          path: scanner/scan-output/
+          retention-days: 7
+          if-no-files-found: warn
