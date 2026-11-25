@@ -1,0 +1,32 @@
+name: Dark Scanner Test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dark-scan-test.yml'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract scanner
+        run: unzip -q dark-scanner-github.zip -d scanner
+      - name: Run engine tests
+        run: node scanner/tests/run-all.mjs
+      - name: Scan Bithumb
+        working-directory: scanner
+        run: node server/github-test.mjs
+      - name: Save scan result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dark-scan-result
+          path: scanner/scan-output/latest.json
+          retention-days: 3
+          if-no-files-found: ignore
