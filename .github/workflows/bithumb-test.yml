@@ -1,0 +1,26 @@
+name: Bithumb API Test
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/bithumb-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Test Bithumb API
+        run: |
+          set -e
+          for unit in 15 30 60 240; do
+            echo "Testing ${unit} minute candles"
+            curl -fsS --max-time 20 \
+              "https://api.bithumb.com/v1/candles/minutes/${unit}?market=KRW-BTC&count=3" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,list) and len(d)==3 and all("trade_price" in x and "candle_acc_trade_volume" in x for x in d); print(d)'
+          done
+          echo "BITHUMB API TEST SUCCESS"
