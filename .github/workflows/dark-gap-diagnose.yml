@@ -1,0 +1,52 @@
+name: Dark Candle Gap Diagnose
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dark-gap-diagnose.yml'
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Diagnose candle gaps
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request, urllib.parse
+          from datetime import datetime, timezone, timedelta
+          KST = timezone(timedelta(hours=9))
+          anchor = int(datetime(2026,11,25,20,30,tzinfo=KST).timestamp())
+          def fmt(t):
+              return datetime.fromtimestamp(t,KST).strftime('%Y-%m-%dT%H:%M:%S')
+          def fetch(market, unit, end, count):
+              q = urllib.parse.urlencode(dict(market=market,to=fmt(end),count=count))
+              url = f'https://api.bithumb.com/v1/candles/minutes/{unit}?{q}'
+              with urllib.request.urlopen(url,timeout=15) as r:
+                  rows = json.load(r)
+              time.sleep(0.2)
+              assert isinstance(rows,list) and rows, 'EMPTY OR INVALID RESPONSE'
+              assert all(r['market']==market and int(r['unit'])==unit for r in rows)
+              times = [int(datetime.fromisoformat(r['candle_date_time_utc']).replace(tzinfo=timezone.utc).timestamp()) for r in rows]
+              return sorted(times)
+          def inspect(market,unit):
+              step=unit*60
+              end=anchor//step*step
+              ts=fetch(market,unit,end,200)
+              assert max(ts)<end, 'TO BOUNDARY MISMATCH'
+              gaps=[(a+step,b,(b-a)//step-1) for a,b in zip(ts,ts[1:]) if b-a>step]
+              print(f'{market} {unit}m count={len(ts)} gaps={len(gaps)} missing={sum(g[2] for g in gaps)} duplicate={len(ts)-len(set(ts))} offgrid={sum(t%step!=0 for t in ts)} latest={fmt(ts[-1])} expected={fmt(end-step)}',flush=True)
+              if gaps:
+                  start=gaps[-1][0]
+                  again=fetch(market,unit,start+step,3)
+                  lower=fetch(market,1,start+step,3)
+                  print(f'  gap={fmt(start)} retry_found={start in again} lower_1m_found={any(start<=t<start+step for t in lower)}',flush=True)
+          for market in ['KRW-BTC','KRW-OPG','KRW-BIGTIME','KRW-MMT','KRW-WAXP']:
+              for unit in [15,30,60,240]:
+                  try:
+                      inspect(market,unit)
+                  except Exception as e:
+                      print(f'{market} {unit}m ERROR {e}',flush=True)
+          print('DIAGNOSIS COMPLETE - NOT A TRADE SIGNAL')
+          PY
