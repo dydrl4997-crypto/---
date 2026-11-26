@@ -1,0 +1,48 @@
+name: Dark Scanner V80 Stability Test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dark-v80-test.yml'
+permissions:
+  contents: read
+concurrency:
+  group: dark-v80-data
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract V80
+        run: unzip -q dark-scanner-v80.zip -d scanner
+      - name: Run tests
+        run: node scanner/tests/run-all.mjs
+      - name: Restore verified candle backup
+        uses: actions/cache/restore@v4
+        with:
+          path: scanner/.dark-cache
+          key: dark-v80-candles-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dark-v80-candles-
+      - name: Scan Bithumb V80
+        working-directory: scanner
+        run: node server/github-v80.mjs
+      - name: Save candle backup
+        if: always() && hashFiles('scanner/.dark-cache/candles.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: scanner/.dark-cache
+          key: dark-v80-candles-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Save results and second backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dark-v80-results
+          path: scanner/scan-output/
+          retention-days: 7
+          if-no-files-found: warn
