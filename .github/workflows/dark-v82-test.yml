@@ -1,0 +1,65 @@
+name: Dark Scanner V82 Full Market Test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/dark-v82-test.yml'
+permissions:
+  contents: read
+concurrency:
+  group: dark-v80-data
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Extract V82
+        run: unzip -q dark-scanner-v82.zip -d scanner
+      - name: Run tests
+        run: node scanner/tests/run-all.mjs
+      - name: Restore verified candle backup
+        uses: actions/cache/restore@v4
+        with:
+          path: scanner/.dark-cache
+          key: dark-v82-candles-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dark-v82-candles-
+            dark-v81-candles-
+            dark-v80-candles-
+      - name: Scan Bithumb V82
+        working-directory: scanner
+        run: |
+          # Start 1-4 minutes after a 15-minute candle boundary.
+          # Keep at least 11 minutes for the existing 10-minute scan guard.
+          while true; do
+            elapsed=$(( $(date +%s) % 900 ))
+            if (( elapsed >= 60 && elapsed <= 240 )); then
+              break
+            elif (( elapsed < 60 )); then
+              delay=$((60 - elapsed))
+            else
+              delay=$((900 - elapsed + 60))
+            fi
+            echo "Waiting ${delay}s for a safe candle window"
+            sleep "$delay"
+          done
+          node server/github-v82.mjs
+      - name: Save candle backup
+        if: always() && hashFiles('scanner/.dark-cache/candles.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: scanner/.dark-cache
+          key: dark-v82-candles-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Save results and second backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dark-v82-results
+          path: scanner/scan-output/
+          retention-days: 7
+          if-no-files-found: warn
